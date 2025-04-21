@@ -2,7 +2,7 @@ import logging, psycopg2, hashlib, random, os, base64, numpy as np, hmac
 logging.basicConfig(level=logging.INFO, format=' %(asctime)s -  %(levelname)s:  %(message)s')
 
 from datetime import datetime, timedelta
-from flask import request, Blueprint, redirect, current_app
+from flask import request, Blueprint, redirect, current_app, jsonify
 from flaskr.db import get_existing_db
 from flaskr.ext.utils import get_field, load_model, get_vector, detect_faces
 from flaskr.ext.fcs import FCS
@@ -20,8 +20,11 @@ def check_unique(db, table_name, field_name, field_value):
     db_cursor.execute(f"""
                 SELECT id FROM {table_name} where {field_name}='{field_value}' LIMIT 1;
             """)
-
-    return db_cursor.fetchone()
+    res = db_cursor.fetchone()
+    if res == None:
+        return res
+    
+    return res
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -37,8 +40,7 @@ def check_status():
         try:
             db = get_existing_db()
             db_cursor = db.cursor(cursor_factory=RealDictCursor)
-            uid = check_unique(db, table_name='users', field_name='BID_identifier', field_value=bid_id).get('id', None)
-
+            uid = check_unique(db, table_name='users', field_name='bid_identifier', field_value=bid_id)
             if uid == None:
                 return {
                     'status': 200,
@@ -47,10 +49,10 @@ def check_status():
                     'request_received': request_received,
                     'request_data': res
                 }, 200
-            
             else:
+                uid = uid.get('id', None)
                 db_cursor.execute(f"""
-                    SELECT id from user_biometric where user_id={uid}
+                    SELECT id from user_biometric where user_id={uid};
                 """)
                 if db_cursor.fetchone() == None:
                     return {
@@ -306,13 +308,19 @@ def authenticate():
             db=get_existing_db()
             db_cursor = db.cursor(cursor_factory=RealDictCursor)
             db_cursor.execute(
-                "SELECT user_id FROM user_biometric where embedding <=> %s <= 0.8", 
+                "SELECT user_id FROM user_biometric where embedding <=> %s <= 0.2", 
                 (
                     f'{embedding.tolist()}',
                 )
             )
-            uid = db_cursor.fetchone().get('user_id', None)
-            print(uid, type(uid))
+            uid = db_cursor.fetchone()
+            if uid == None:
+                return {
+                'received_data': {**res, 'filename': file.filename},
+                'status': 200,
+                'message': "No users found."
+                    }, 200
+            uid = uid.get('user_id', None)
         except Exception as error:
             raise error
 
@@ -327,7 +335,6 @@ def authenticate():
                 uid,
             )
         )
-
         fetched_user = db_cursor.fetchone()
         signed = hmac.new(
             key=bytes(str(os.getenv('APIKEY')).encode('utf-8')),

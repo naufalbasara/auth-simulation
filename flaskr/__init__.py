@@ -36,6 +36,8 @@ def create_app(test_config=None):
     return app
 
 def register_blueprints(app):
-    from .api import auth
+    from .api.v1.app import bp as v1bp
+    from .api.v2.app import bp as v2bp
     
-    app.register_blueprint(auth.bp)
+    app.register_blueprint(v1bp)
+    app.register_blueprint(v2bp)
